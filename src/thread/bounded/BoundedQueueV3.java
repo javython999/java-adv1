@@ -38,7 +38,7 @@ public class BoundedQueueV3 implements BoundedQueue {
             log("[take] 큐에 데이터가 없음, 소비자 대기");
             try {
                 wait();    // RUNNABLE -> WAITING, 락 반납
-                log("[take] 생산자 깨어남");
+                log("[take] 소비자 깨어남");
             } catch (InterruptedException e) {
                 throw new RuntimeException(e);
             }
