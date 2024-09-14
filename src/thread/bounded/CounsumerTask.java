@@ -13,8 +13,8 @@ public class CounsumerTask implements Runnable {
 
     @Override
     public void run() {
-        log("[소비 시도]      ? <- " + queue);
+        log("[소비 시도]     ? <- " + queue);
         String data = queue.take();
-        log("[소비 완료]  " + data + " <- " + queue);
+        log("[소비 완료] " + data + " <- " + queue);
     }
 }
