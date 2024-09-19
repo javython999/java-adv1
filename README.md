@@ -887,3 +887,80 @@ boolean cancel(boolean mayInterruptIfRunning)
 * `<T> T invokeAny(Collection<? extends Callable<T>> tasks, long timeout, TimeUnit unit) throws InterruptedException, ExecutionException`
   * 지정된 시간 내에 하나의 `Callable` 작업이 완료될 때까지 기다리고, 가장 먼저 완료된 작업의 결과를 반환환다.
   * 완료되지 않은 나머지 작업은 취소한다.
+
+***
+## ExecutorService - graceful shutdown
+### 서비스 종료
+* `void shutdown()`
+  * 새로운 작업을 받지 않고 이미 제출된 작업을 모두 완료한 후에 종료한다.
+  * 논 블록킹 메서드
+* `List<Runnable> shutdownNow()`
+  * 실행 중인 작업을 중단하고, 대기 중인 작업을 반환하여 즉시 종료한다.
+  * 실행 중인 작업을 중단하기 위해 인터럽트를 발생시킨다.
+  * 논 블록킹 메서드
+
+### 서비스 상태 확인
+* `boolean isShutdown()`
+  * 서비스가 종료되었는지 확인한다.
+* `boolean isTerminated()`
+  * `shutdown()`, `shutdownNow()` 호출 후, 모든 작업이 완료되었는지 확인한다.
+
+### 작업 완료 대기
+* `boolean awaitTermination(long timeout, TimeUnit unit) throws InterruptedException`
+  * 서비스 종료시 모든 작업이 완료될 때까지 대기한다. 이때 지정된 시간까지만 대기한다.
+  * 블록킹 메서드
+
+### close()
+`close()`는 자바 19부터 지원하는 서비스 종료 메서드이다. 이 메서드는 `shutdown()`과 같다고 생각하면 된다.
+* 더 정확히는 `shutdown()`을 호출하고, 하루를 기다려도 작업이 완료되지 않으면 `shutdownNow()`를 호출한다.
+* 호출한 스레드에 인터럽트가 발생해도 `shutdownNow()`를 호출한다.
+
+## Executor 스레드 풀 관리
+`ExecutorService`의 기본 구현체인 `ThreadPoolExecutor`의 생성자는 다음 속성을 사용한다.
+* `corePoolSize`: 스레드 풀에 관리되는 기본 스레드의 수
+* `maximumPoolSize`: 스레드 풀에서 관리되는 최대 스레드 수
+* `KeepAliveTime`, `TimeUnit unit`: 기본 스레드 수를 초과해서 만들어진 스레드가 생존할 수 있는 대기 시간, 이 시간동안 처리할 작업이 없다면 초과 스레드는 제거된다.
+* `BlokingQueue workQueue`: 작업을 보관할 블로킹 큐
+
+1. 작업을 요청하면 core 사이즈 만큼 스레드를 만든다.
+2. core 사이즈를 초과하면 큐에 작업을 넣는다.
+3. 큐가 초과하면 max 사이즈 만큼 스레드를 만든다. 임시로 사용되는 초과 스레드가 생성된다.
+   * 큐가 가득차서 큐에 넣을 수도 없다. 초과 스레드가 바로 수행해야 한다.
+4. max 사이즈를 초과하면 요청을 거절한다. 예외가 발생한다.
+   * 큐도 가득차고, 풀에 최대 생성 가능한 스레드 수도 가득 찼다. 작업을 받을 수 없다.
+
+## Executor 전략 - 고정 풀 전략
+자바는 `Executors` 클래스를 통해서 3가지 기본 전략을 제공한다.
+* `newSingleThreadPool()`: 단일 스레드 풀 전략
+  * 스레드 풀에 기본 스레드 1개만 사용한다.
+  * 큐 사이즈에 제한이 없다.(`LinkedBlockingQueue`)
+  * 주로 간단히 사용하거나, 테스트 용도로 사용한다.
+* `newFixedHtreadPool(nThreads)`: 고정 스레드 풀 전략
+  * 스레드 풀에 `nThreads`만큼의 기본 스레드를 생성한다. 초과 스레드는 생성하지 않는다.
+  * 큐 사이즈에 제한이 없다.(`LinkedBlockingQueue`)
+  * 스레드 수가 고정되어있기 때문에 CPU, 메모리 리소스가 어느정도 예측 가능한 안정적인 방식이다.
+* `newCachedThreadPool()`: 캐시 스레드 풀 전략
+  * 기본 스레드를 사용하지 않고, 60초 생존 주기를 가진 초과 스레드만 사용한다.
+  * 초과 스레드의 수는 제한이 없다.
+  * 큐에 작업을 저장하지 않는다.(`SynchronousQueue`)
+    * 대신에 생산자의 요청을 스레드 풀의 소비자 스레드가 직접 받아서 바로 처리한다.
+  * 모든 요청이 대기하지 않고 스레드가 바로바로 처리한다. 따라서 빠른 처리가 가능하다.
+
+### SynchronouseQueue
+SynchronouseQueue는 아주 특별한 블록킹 큐이다.
+* `BlockingQueue` 인터페이스의 구현체 중 하나이다.
+* 이 큐는 내부에 저장 공간이 없다. 대신에 생산자의 작업을 소비자 스레드에게 직접 전달한다.
+* 중간에 버퍼를 두지 않는 스레드간 직거래라고 생각하면 된다.
+
+## Executor 전략 - 사용자 정의 풀 전략
+* 일반: 일반적인 상황에서는 CPU, 메모리 자원을 예측할 수 있도록 고정 크기의 스레드로 서비스를 안정적으로 운영한다.
+* 긴급: 사용자의 요청이 갑자기 증가하면 긴급하게 스레드를 추가로 투입해서 작업을 빠르게 처리한다.
+* 거절: 사용자의 요청이 폭증해서 긴급 대응도 어렵다면 사용자의 요청을 거절한다.
+
+## Executor 예외 정책
+`ThreadPoolExecutor`에 작업을 요청할 때, 큐도 가득차고, 초과 스레드도 더는 할당할 수 없다면 작업을 거절한다.
+`ThreadPoolExecutor`는 작업을 거절하는 다양한 정책을 제공한다.
+* `AbortPolicy`: 새로운 작업을 제출할 때 `RejectedExecutionException`을 발생시킨다. 기본정책이다.
+* `DiscardPolicy`: 새로운 작업을 조용히 버린다.
+* `CallerRunsPolicy`: 새로운 작업을 제출한 스레드가 대신 직접 작업을 실행한다.
+* 사용자 정의(`RejectedExecptionHandler`): 개발자가 직접 정의한 거잴 정책을 사용할 수 있다.
